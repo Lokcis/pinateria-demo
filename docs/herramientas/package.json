@@ -1,0 +1,8 @@
+{
+  "name": "herramientas-documentacion",
+  "private": true,
+  "description": "Conversor de Markdown a Word para la documentación del proyecto",
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}

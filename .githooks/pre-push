@@ -1,0 +1,25 @@
+#!/bin/sh
+# Bloquea `git push` directo a main y a dev: los cambios entran por pull request
+# (rama -> dev -> main). Un push a la rama que sigue el servidor dispara el despliegue
+# continuo (.github/workflows/despliegue.yml), asi que esto evita desplegar por accidente.
+# Es una red de seguridad local; la proteccion de ramas en GitHub requiere GitHub Pro
+# (scripts/proteger-main.sh).
+#
+# Activar una vez por clon:  git config core.hooksPath .githooks
+# Saltarlo en una emergencia: PERMITIR_PUSH_DIRECTO=1 git push ...
+#   (PERMITIR_PUSH_MAIN=1 sigue funcionando por compatibilidad)
+
+while read -r _ref_local _sha_local ref_remota _sha_remota; do
+    case "$ref_remota" in
+        refs/heads/main|refs/heads/dev)
+            if [ "$PERMITIR_PUSH_DIRECTO" != "1" ] && [ "$PERMITIR_PUSH_MAIN" != "1" ]; then
+                rama="${ref_remota#refs/heads/}"
+                echo "✋ Push directo a $rama bloqueado. Abre un pull request (rama -> dev -> main)." >&2
+                echo "   Si de verdad es necesario: PERMITIR_PUSH_DIRECTO=1 git push ..." >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+exit 0

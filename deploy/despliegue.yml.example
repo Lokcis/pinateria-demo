@@ -1,0 +1,224 @@
+# Despliegue continuo (Fase 7) hacia el servidor, con el runner self-hosted.
+#
+# Se dispara SOLO con push a dev o main (nunca con pull_request: el codigo de un PR
+# no debe correr en el servidor). Antes de tocar nada espera a que el CI de ese
+# mismo commit termine en verde. Reglas (ver DEPLOY.md, "Despliegue continuo"):
+#   - Una migracion nueva exige aprobacion manual (variable MIGRACIONES_APROBADAS).
+#   - Si algo falla, se muestra el estado y se detiene. Sin restaurar ni revertir solo.
+#   - Nunca se lee ni se muestra el .env.
+name: Despliegue
+
+on:
+  push:
+    branches: [dev, main]
+
+# Un solo despliegue a la vez y sin cancelar el que esta en curso.
+# Si llegan varios push mientras corre uno, GitHub conserva solo el mas reciente.
+concurrency:
+  group: despliegue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# bash con -e y pipefail: un fallo dentro de una tuberia no pasa desapercibido.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # 1. Espera al CI (Backend, Printer agent, Frontend) del mismo commit.
+  esperar-ci:
+    name: Esperar el CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+    outputs:
+      ok: ${{ steps.ci.outputs.ok }}
+    steps:
+      - id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for intento in $(seq 1 120); do
+            fila=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push \
+              --json status,conclusion --limit 1 --jq '.[0] | "\(.status) \(.conclusion)"' || true)
+            echo "CI de ${GITHUB_SHA::7}: ${fila:-sin ejecucion todavia}"
+            case "$fila" in
+              "completed success")
+                echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              "completed cancelled")
+                echo "::notice::El CI de este commit se cancelo (llego uno mas reciente); no se despliega."
+                echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              "completed "*)
+                echo "::error::El CI de este commit no termino en verde ($fila); no se despliega."
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::El CI no termino en 30 minutos."
+          exit 1
+
+  # 2. En el servidor: solo lectura. Decide si corresponde desplegar y si falta una aprobacion.
+  revisar:
+    name: Revisar el servidor
+    needs: esperar-ci
+    if: needs.esperar-ci.outputs.ok == 'true'
+    runs-on: [self-hosted, Linux, X64, demo-servidor]
+    timeout-minutes: 10
+    outputs:
+      desplegar: ${{ steps.revision.outputs.desplegar }}
+    steps:
+      - id: revision
+        env:
+          RAMA: ${{ github.ref_name }}
+          APROBADAS: ${{ vars.MIGRACIONES_APROBADAS }}
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+
+          # El servidor despliega UNA rama (dev en staging, main en produccion).
+          actual=$(git rev-parse --abbrev-ref HEAD)
+          if [ "$actual" != "$RAMA" ]; then
+            echo "::notice::El servidor esta en '$actual'; este push es de '$RAMA'. No se despliega."
+            echo "desplegar=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Un override de Compose (p. ej. el tunel temporal) cambiaria lo que se levanta.
+          if [ -e docker-compose.override.yml ]; then
+            echo "::error::Existe docker-compose.override.yml en el servidor; retiralo (ver DEPLOY.md)."
+            exit 1
+          fi
+
+          git fetch --quiet origin "$RAMA"
+          git cat-file -e "$GITHUB_SHA^{commit}"
+
+          # Base de la comparacion: el ultimo commit desplegado con exito (o el actual si no hay marca).
+          base=$(cat .git/demo-ultimo-despliegue 2>/dev/null || git rev-parse HEAD)
+          git cat-file -e "$base^{commit}" || base=$(git rev-parse HEAD)
+
+          # Migraciones nuevas: cada una debe estar aprobada de antemano.
+          nuevas=$(git diff --name-only --diff-filter=A "$base" "$GITHUB_SHA" -- backend/alembic/versions \
+            | sed -n 's#.*/\([0-9][0-9]*\)_.*\.py$#\1#p' | sort -u)
+          sin_aprobar=""
+          for rev in $nuevas; do
+            case ",$(echo "$APROBADAS" | tr -d ' ')," in
+              *",$rev,"*) ;;
+              *) sin_aprobar="$sin_aprobar $rev" ;;
+            esac
+          done
+          if [ -n "$sin_aprobar" ]; then
+            echo "::error::Migracion(es) sin aprobar:$sin_aprobar. Nada se toco en el servidor."
+            echo "Antes: respaldo manual y ensayo en staging (DEPLOY.md). Luego aprueba y vuelve a ejecutar este workflow:"
+            pendientes="${sin_aprobar# }"
+            echo "  gh variable set MIGRACIONES_APROBADAS --body \"${APROBADAS:+$APROBADAS,}${pendientes// /,}\""
+            exit 1
+          fi
+          echo "Migraciones nuevas (todas aprobadas): ${nuevas:-ninguna}"
+          echo "desplegar=true" >> "$GITHUB_OUTPUT"
+
+  # 3. En el servidor: respaldo, actualizacion y verificacion.
+  desplegar:
+    name: Desplegar
+    needs: revisar
+    if: needs.revisar.outputs.desplegar == 'true'
+    runs-on: [self-hosted, Linux, X64, demo-servidor]
+    timeout-minutes: 45
+    steps:
+      - name: Respaldo previo (Celery)
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          # Pasa por la cola de Celery y espera el resultado: falla si el worker esta caido o el respaldo no es valido.
+          ruta=$(docker compose exec -T celery_worker python -c \
+            'from main import celery; print(celery.send_task("respaldos.respaldar_base_de_datos").get(timeout=900))' | tail -n 1)
+          case "$ruta" in
+            /app/backups/*.dump) ;;
+            *) echo "::error::El respaldo no devolvio una ruta valida: '$ruta'"; exit 1 ;;
+          esac
+          archivo="backups/$(basename "$ruta")"
+          test -f "$archivo" && test -s "$archivo"
+          ls -l "$archivo"
+
+      - name: Actualizar el codigo
+        env:
+          RAMA: ${{ github.ref_name }}
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          git fetch --quiet origin "$RAMA"
+          # Avanza exactamente al commit cuyo CI se verifico (solo hacia adelante).
+          base_antes=$(cat .git/demo-ultimo-despliegue 2>/dev/null || git rev-parse HEAD)
+          git merge --ff-only "$GITHUB_SHA"
+          echo "BASE_ANTES=$base_antes" >> "$GITHUB_ENV"
+
+      - name: Compilar el frontend (si cambio)
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          git cat-file -e "$BASE_ANTES^{commit}" || BASE_ANTES=$(git rev-parse HEAD)
+          if [ ! -f frontend/dist/index.html ] || [ -n "$(git diff --name-only "$BASE_ANTES" HEAD -- frontend)" ]; then
+            test -f frontend/.env.production || { echo "::error::Falta frontend/.env.production (VITE_API_BASE_URL=/api)."; exit 1; }
+            cd frontend
+            npm ci
+            # Se compila en una carpeta aparte: `vite build` vacia su destino antes de empezar y, si fallara
+            # (p. ej. un Node demasiado viejo), Nginx se quedaria sin archivos que servir.
+            rm -rf dist-nuevo
+            npm run build -- --outDir dist-nuevo --emptyOutDir
+            mkdir -p dist
+            find dist -mindepth 1 -delete
+            cp -a dist-nuevo/. dist/
+            rm -rf dist-nuevo
+          else
+            echo "El frontend no cambio; se conserva frontend/dist."
+          fi
+
+      - name: Levantar los servicios
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          docker compose up -d --build
+
+      # Nginx resuelve `backend` al arrancar y conserva esa IP: si el backend se recreo y Nginx no,
+      # responde 502 (connection refused). Recargar la configuracion vuelve a resolver sin cortar nada.
+      - name: Recargar Nginx
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          docker compose exec -T nginx nginx -s reload
+
+      - name: Esperar a que migrate termine bien
+        run: |
+          for intento in $(seq 1 60); do
+            estado=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' pinateria_demo_migrate 2>/dev/null || echo "ausente")
+            echo "migrate: $estado"
+            [ "$estado" = "exited 0" ] && exit 0
+            case "$estado" in "exited "*) echo "::error::migrate termino con error ($estado)"; exit 1 ;; esac
+            sleep 5
+          done
+          echo "::error::migrate no termino en 5 minutos"
+          exit 1
+
+      - name: Comprobar /api/health
+        run: |
+          for intento in $(seq 1 24); do
+            if curl -fsS http://localhost:8080/api/health; then echo; exit 0; fi
+            sleep 5
+          done
+          echo "::error::/api/health no respondio 200 en 2 minutos"
+          exit 1
+
+      - name: Registrar el commit desplegado
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          git rev-parse HEAD > .git/demo-ultimo-despliegue
+          git log -1 --oneline
+
+      # Si algo fallo: solo informar y detenerse (sin restaurar, revertir ni reiniciar).
+      - name: Diagnostico del fallo
+        if: failure()
+        run: |
+          cd "$HOME/proyectos/pinateria-demo"
+          docker compose ps -a || true
+          for servicio in migrate backend celery_worker celery_beat nginx; do
+            echo "::group::logs de $servicio"
+            docker compose logs --no-color --tail 60 "$servicio" || true
+            echo "::endgroup::"
+          done
+          echo "::error::Despliegue detenido. No se restauro ni se revirtio nada; revisa DEPLOY.md."

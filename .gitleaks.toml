@@ -1,0 +1,14 @@
+# Configuración de gitleaks para este repositorio.
+# Las pruebas usan contraseñas y códigos inventados ("clave-de-prueba-123", "temporal-123", "codigo-secreto-123"):
+# no son credenciales reales. Se permiten solo en archivos de pruebas; en el resto del código siguen detectándose.
+title = "Piñatería Demo"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Credenciales ficticias de las pruebas automáticas"
+paths = [
+  '''backend/tests/.*\.py''',
+  '''frontend/src/.*\.test\.jsx?''',
+]

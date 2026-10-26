@@ -1,0 +1,30 @@
+# Dependabot: las actualizaciones de seguridad se proponen contra `dev` (el flujo es
+# rama -> PR -> dev -> PR -> main; Dependabot usa por defecto la rama principal, `main`).
+# `open-pull-requests-limit: 0` desactiva las actualizaciones de versiones de rutina y
+# deja solo las de seguridad. Revisar cada PR: las migraciones mayores se hacen aparte.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: dev
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /backend
+    target-branch: dev
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /printer-agent
+    target-branch: dev
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly

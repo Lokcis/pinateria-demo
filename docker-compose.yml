@@ -1,0 +1,156 @@
+# Servicios de Piñatería Demo.
+# Las variables ${...} se leen del archivo .env de esta carpeta (ver .env.example).
+
+x-entorno-backend: &entorno-backend
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pinateria_demo}
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: ${SECRET_KEY}
+  ENVIRONMENT: production
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: pinateria_demo_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pinateria_demo}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Solo accesible desde el propio servidor (para administrar por SSH/túnel).
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-pinateria_demo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pinateria_demo_redis
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    # Sin puertos publicados: solo lo usan los contenedores de esta red.
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aplica las migraciones de Alembic y termina. El backend espera a que acabe bien.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pinateria_demo_migrate
+    command: alembic upgrade head
+    restart: "no"
+    environment: *entorno-backend
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pinateria_demo_backend
+    restart: always
+    command: gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    environment: *entorno-backend
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pinateria_demo_celery_worker
+    restart: always
+    command: celery -A main.celery worker --loglevel=info
+    environment: *entorno-backend
+    volumes:
+      # Aquí se ejecutan las tareas (p. ej. el respaldo de PostgreSQL); los
+      # archivos quedan en el servidor, no dentro del contenedor.
+      - ./backups:/app/backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pinateria_demo_celery_beat
+    restart: always
+    # El estado de Beat (cuando corrio cada tarea) vive en un volumen: si el contenedor se recrea
+    # (cada despliegue lo hace), recupera el respaldo diario que se pasaria de largo.
+    command: celery -A main.celery beat --loglevel=info --schedule /data/celerybeat-schedule
+    environment: *entorno-backend
+    volumes:
+      - celery_beat_data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: pinateria_demo_nginx
+    restart: always
+    ports:
+      # Solo en el propio servidor (127.0.0.1): la entrada pública y el TLS los
+      # da Cloudflare Tunnel, que llega a Nginx por la red interna de Docker
+      # (http://nginx:8080). No se publica en la red ni en el router.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: pinateria_demo_tunnel
+    restart: always
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: pinateria_demo_monitoring
+    restart: always
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  celery_beat_data:
+    driver: local
+  uptime_kuma_data:
+    driver: local

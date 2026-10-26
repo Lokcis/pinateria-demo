@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * Sistema visual de Piñatería Demo.
+ * Papel crema de fondo, tinta azul oscuro para texto, y cinco colores de
+ * fiesta usados con intención (no como decoración aleatoria):
+ *   fucsia   -> acción principal y marca
+ *   sol      -> atención / stock bajo
+ *   turquesa -> éxito / confirmación
+ *   mandarina, cielo -> etiquetas de categoría
+ */
+@theme {
+  --font-display: "Bricolage Grotesque Variable", ui-rounded, system-ui, sans-serif;
+  --font-sans: "Figtree Variable", system-ui, sans-serif;
+
+  --color-papel: #fbf6ee;
+  --color-papel-osc: #f3ead9;
+  --color-tinta: #1f1b3a;
+  --color-fucsia: #d6245f;
+  --color-fucsia-osc: #b81a4d;
+  --color-sol: #ffb800;
+  --color-turquesa: #0b7f72;
+  --color-mandarina: #f26a2e;
+  --color-cielo: #2b74e0;
+
+  --animate-pop: pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-subir: subir 380ms ease-out both;
+  --animate-pulso-suave: pulso-suave 2s ease-in-out infinite;
+  --animate-confeti: confeti 1400ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+
+  @keyframes pop {
+    0% { transform: scale(0.94); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes subir {
+    0% { transform: translateY(10px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes pulso-suave {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @keyframes confeti {
+    0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+    100% { transform: translate(var(--dx), var(--dy)) rotate(var(--giro)); opacity: 0; }
+  }
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-papel);
+    color: var(--color-tinta);
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  button {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-cielo);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Banderines (papel picado) como franja decorativa. */
+  .banderines {
+    height: 14px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='14' viewBox='0 0 120 14'%3E%3Cpath d='M0 0h24L12 14z' fill='%23d6245f'/%3E%3Cpath d='M24 0h24L36 14z' fill='%23ffb800'/%3E%3Cpath d='M48 0h24L60 14z' fill='%230b7f72'/%3E%3Cpath d='M72 0h24L84 14z' fill='%23f26a2e'/%3E%3Cpath d='M96 0h24L108 14z' fill='%232b74e0'/%3E%3C/svg%3E");
+    background-repeat: repeat-x;
+    background-size: 120px 14px;
+  }
+  /* Version fina de los banderines para el encabezado (menos alto, mas espacio para el contenido). */
+  .banderines-finos {
+    height: 8px;
+    background-size: 69px 8px;
+  }
+  .sombra-dura {
+    box-shadow: 4px 4px 0 var(--color-tinta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+

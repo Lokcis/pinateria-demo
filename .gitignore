@@ -1,0 +1,161 @@
+# ==============================================================================
+# .gitignore sugerido para el proyecto Piñatería Demo
+# Estructura: Monorepositorio (React Frontend, FastAPI Backend, Agente Impresión)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. SECRETOS Y SEGURIDAD (¡CRÍTICO!)
+# Nunca subir credenciales, tokens, llaves de API o certificados de producción.
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.token
+cloudflared/cert.json
+cloudflared/tunnel-*.json
+
+# ------------------------------------------------------------------------------
+# 2. PYTHON (Backend & Agente de Impresión)
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales locales
+.venv
+venv
+ENV
+env
+venv/
+ENV/
+env/
+.venv/
+custom-venv/
+
+# Herramientas de formateo, testing y tipado de Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+.spyderproject
+.spyproject
+
+# ------------------------------------------------------------------------------
+# 3. NODE / JAVASCRIPT (Frontend - React / Vite)
+# ------------------------------------------------------------------------------
+node_modules/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/dist-nuevo/
+/frontend/build/
+jspm_packages/
+.pnp
+.pnp.js
+
+# Logs de error de NPM/Yarn
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Cachés locales de herramientas JS
+.eslintcache
+.stylelintcache
+.parcel-cache
+.next
+.nuxt
+.svelte-kit
+
+# ------------------------------------------------------------------------------
+# 4. DOCKER & INFRAESTRUCTURA (Servidor Bogotá)
+# ------------------------------------------------------------------------------
+# Evita subir los dumps locales de base de datos a Git
+*.dump
+*.sql
+!backend/schema.sql   # Permitir explícitamente el esquema de base de datos del repositorio
+!infra/schema.sql
+pgdata/                # Si montan la base de datos de Postgres en una carpeta del host
+/infra/pgdata/
+
+# Logs del contenedor y de la app
+*.log
+logs/
+/backend/logs/
+
+# ------------------------------------------------------------------------------
+# 5. ENTORNOS DE DESARROLLO (IDEs) & SISTEMA OPERATIVO
+# ------------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.history/
+
+# PyCharm / WebStorm / IntelliJ
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Tickets generados por el agente de impresion en modo mock
+printer-agent/tickets_mock/
+
+# Respaldos de PostgreSQL generados en el servidor
+backups/
+
+# Cache de Vite
+.vite/
+
+# Firma manuscrita del autor, usada solo para generar los manuales (docs/herramientas/manuales_pdf.py).
+docs/herramientas/firma.png

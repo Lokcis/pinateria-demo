@@ -1,0 +1,10 @@
+# Nunca meter secretos ni basura de desarrollo en la imagen.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+pytest.ini
+requirements-dev.txt

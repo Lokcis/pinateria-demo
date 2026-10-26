@@ -1,0 +1,5 @@
+# Los scripts de shell y hooks deben usar LF (fallan con CRLF en Linux/Git Bash)
+*.sh text eol=lf
+.githooks/* text eol=lf
+# Los .bat de Windows deben usar CRLF (los .bat con LF fallan en cmd.exe)
+*.bat text eol=crlf
